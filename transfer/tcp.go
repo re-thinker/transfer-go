@@ -1,25 +1,28 @@
 package transfer
 
 import (
+	"io"
 	"net"
 	"time"
-	"io"
 )
 
-
-
-type TCPTransfer struct{
-	conn net.Conn
+type TCPParam struct {
+	IP      string        `param:"ip"`
+	Port    string        `param:"port"`
+	Timeout time.Duration `param:"timeout"`
 }
 
-func (tcp *TCPTransfer) Init() error {
-	var err error
-	tcp.conn , err = net.Dial("tcp", "127.0.0.1:8080")
-	if err != nil {
-		return err
-	}
+type TCPTransfer struct {
+	conn        net.Conn
+	param       *TCPParam
+	isConnected bool
+}
 
-	return nil
+func (tcp *TCPTransfer) Init(param interface{}) error {
+	var err error
+	tcp.param = param.(*TCPParam)
+	_, err = tcp.connect()
+	return err
 }
 
 func (tcp *TCPTransfer) Read(buf []byte) (n int, err error) {
@@ -44,9 +47,47 @@ func (tcp *TCPTransfer) Read(buf []byte) (n int, err error) {
 		index += n
 	}*/
 
-	if err = tcp.conn.SetReadDeadline(time.Time{}); err != nil {
+	if err = tcp.conn.SetWriteDeadline(time.Time{}); err != nil {
+		return n, err
+	}
+	return n, nil
+}
+
+func (tcp *TCPTransfer) Write(buf []byte) (n int, err error) {
+	if err := tcp.conn.SetWriteDeadline(time.Now().Add(time.Second * 10)); err != nil {
+		return 0, err
+	}
+	n, err = tcp.conn.Write(buf)
+	if err != nil {
 		return n, err
 	}
 
-	return n,nil
+	if err = tcp.conn.SetReadDeadline(time.Time{}); err != nil {
+		return n, err
+	}
+	return n, nil
+}
+
+func (tcp *TCPTransfer) Close() error {
+	return tcp.conn.Close()
+}
+
+func (tcp *TCPTransfer) connect() (bool, error) {
+	var err error
+	if tcp.isConnected {
+		return true, err
+	}
+
+	tcp.conn, err = net.DialTimeout("tcp", tcp.param.IP+":"+ tcp.param.Port, tcp.param.Timeout)
+	if err != nil {
+		return false, err
+	}
+	tcp.isConnected = true
+	return true, err
+}
+
+func (tcp *TCPTransfer)reconnect() (bool, error)  {
+	tcp.conn.Close()
+	tcp.isConnected = false
+	return tcp.connect()
 }
